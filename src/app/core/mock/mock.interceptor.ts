@@ -11,6 +11,10 @@ function has(url: string, needle: string): boolean {
   return url.includes(needle);
 }
 
+type MovementPayload = {
+  movementItems?: unknown[];
+};
+
 export const mockInterceptorFn: HttpInterceptorFn = (req, next) => {
   const url = req.url;
 
@@ -35,17 +39,20 @@ export const mockInterceptorFn: HttpInterceptorFn = (req, next) => {
   }
 
   // POST Movements
-  if (has(url, '/mov/v1/Movements/') && req.method === 'POST') {
-    const payload = req.body;
+  if (has(url, '/mov/v1/Movements') && req.method === 'POST') {
+    const payload = req.body as MovementPayload | null;
 
-    if (!payload?.movementItems?.length) {
-      return throwError(() => new HttpErrorResponse({
-        status: 400,
-        error: { message: 'Nenhum item informado.' },
-      }));
+    if (!payload?.movementItems || payload.movementItems.length === 0) {
+      return throwError(
+        () =>
+          new HttpErrorResponse({
+            status: 400,
+            error: { message: 'Nenhum item informado.' },
+          })
+      );
     }
 
-    const created = REQUESTS_DB.addFromMovementPayload(payload);
+    const created = REQUESTS_DB.addFromMovementPayload(req.body as any);
     return of(new HttpResponse({ status: 201, body: created })).pipe(delay(400));
   }
 

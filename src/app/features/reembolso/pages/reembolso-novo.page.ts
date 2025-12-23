@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormArray, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 
 import { ApiClient } from '../../../core/api/api-client';
 import { CostCenter } from '../../../core/models/cost-center.model';
@@ -9,6 +10,8 @@ import { Project } from '../../../core/models/project.model';
 import { ExpenseType } from '../../../core/models/expense.model';
 import { sum, formatBRL } from '../../../core/shared/utils/money';
 import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
+
+import { addLocalRequest } from '../../../core/shared/local-requests';
 
 @Component({
   standalone: true,
@@ -24,7 +27,9 @@ import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
           <label>Centro de Custo</label>
           <select [formControl]="form.controls.costCenterCode">
             <option value="" disabled>Selecione...</option>
-            <option *ngFor="let cc of costCenters" [value]="cc.code">{{ cc.code }} — {{ cc.name }}</option>
+            <option *ngFor="let cc of costCenters" [value]="cc.code">
+              {{ cc.code }} — {{ cc.name }}
+            </option>
           </select>
           <div class="small" *ngIf="form.controls.costCenterCode.touched && form.controls.costCenterCode.invalid">
             Informe o centro de custo.
@@ -36,7 +41,7 @@ import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
     <div class="card" style="margin-bottom:12px;">
       <div class="row" style="justify-content:space-between; align-items:center;">
         <h2 style="margin:0;">Itens da Despesa</h2>
-        <button (click)="addItem()">+ Adicionar Item</button>
+        <button type="button" (click)="addItem()">+ Adicionar Item</button>
       </div>
 
       <table class="table" *ngIf="items.length > 0; else emptyItems">
@@ -44,8 +49,8 @@ import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
           <tr>
             <th style="min-width:220px;">Tipo de Despesa</th>
             <th style="width:90px;">Qtd</th>
-            <th style="min-width:160px;">Projeto</th>
-            <th style="width:140px;">Valor (R$)</th>
+            <th style="min-width:180px;">Projeto</th>
+            <th style="width:160px;">Valor (R$)</th>
             <th style="width:140px;">Total</th>
             <th style="width:80px;"></th>
           </tr>
@@ -57,19 +62,38 @@ import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
                 <option value="" disabled>Selecione...</option>
                 <option *ngFor="let e of expenses" [value]="e.id">{{ e.name }}</option>
               </select>
+              <div class="small" *ngIf="isInvalid(i, 'expenseTypeId')">Selecione uma despesa.</div>
             </td>
-            <td><input formControlName="quantity" disabled></td>
+
+            <td>
+              <input formControlName="quantity" disabled />
+            </td>
+
             <td>
               <select formControlName="projectId">
                 <option value="" disabled>Selecione...</option>
                 <option *ngFor="let p of projects" [value]="p.id">{{ p.name }}</option>
               </select>
+              <div class="small" *ngIf="isInvalid(i, 'projectId')">Selecione um projeto.</div>
             </td>
+
             <td>
-              <input type="number" min="0" step="0.01" formControlName="unitPrice" (input)="noop()">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Ex.: 123.45"
+                formControlName="unitPrice"
+                (input)="noop()"
+              />
+              <div class="small" *ngIf="isInvalid(i, 'unitPrice')">Informe um valor maior que 0.</div>
             </td>
+
             <td>{{ brl(lineTotal(i)) }}</td>
-            <td><button class="link" (click)="removeItem(i)">remover</button></td>
+
+            <td>
+              <button type="button" class="link" (click)="removeItem(i)" [disabled]="items.length === 1">remover</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -87,16 +111,16 @@ import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
     <div class="card">
       <h2>Comprovantes</h2>
       <div class="dropzone">
-        <div style="margin-bottom:8px;">Clique para selecionar (mock local)</div>
-        <input type="file" multiple (change)="onFiles($event)">
+        <div style="margin-bottom:8px;">Clique para selecionar</div>
+        <input type="file" multiple (change)="onFiles($event)" />
         <div class="small" style="margin-top:10px;" *ngIf="files.length">
           <div *ngFor="let f of files">• {{ f.name }}</div>
         </div>
       </div>
 
       <div class="actions">
-        <button (click)="cancel()">Cancelar</button>
-        <button class="primary" (click)="save()" [disabled]="saving || form.invalid || items.length === 0">
+        <button type="button" (click)="cancel()">Cancelar</button>
+        <button type="button" class="primary" (click)="save()" [disabled]="saving || !canSave()">
           {{ saving ? 'Salvando...' : 'Salvar Solicitação' }}
         </button>
       </div>
@@ -132,7 +156,6 @@ export class ReembolsoNovoPage implements OnInit {
     this.api.getProjects().subscribe((x) => (this.projects = x));
     this.api.getExpenses().subscribe((x) => (this.expenses = x));
 
-    // começa com 1 item para reduzir atrito do avaliador
     this.addItem();
   }
 
@@ -149,20 +172,27 @@ export class ReembolsoNovoPage implements OnInit {
   }
 
   removeItem(i: number): void {
+    if (this.items.length === 1) return;
     this.items.removeAt(i);
   }
 
   syncTask(i: number): void {
     const group = this.items.at(i);
     const expenseId = Number(group.get('expenseTypeId')?.value);
-    const exp = this.expenses.find(e => e.id === expenseId);
+    const exp = this.expenses.find((e) => e.id === expenseId);
     if (exp) group.get('taskId')?.setValue(exp.taskId);
+  }
+
+  isInvalid(i: number, controlName: string): boolean {
+    const g = this.items.at(i);
+    const c = g.get(controlName);
+    return !!(c && c.touched && c.invalid);
   }
 
   lineTotal(i: number): number {
     const g = this.items.at(i);
     const unit = Number(g.get('unitPrice')?.value ?? 0);
-    return unit;
+    return unit; // quantidade sempre 1
   }
 
   total(): number {
@@ -173,30 +203,54 @@ export class ReembolsoNovoPage implements OnInit {
     return formatBRL(v);
   }
 
-  onFiles(ev: Event) {
+  onFiles(ev: Event): void {
     const input = ev.target as HTMLInputElement;
-    const list = input.files ? Array.from(input.files) : [];
-    this.files = list;
+    this.files = input.files ? Array.from(input.files) : [];
   }
 
-  cancel() {
+  cancel(): void {
     this.router.navigateByUrl('/solicitacoes');
   }
 
-  noop() {}
+  noop(): void {}
+
+  canSave(): boolean {
+    return this.items.length > 0 && this.form.valid;
+  }
+
+  private extractBackendMessage(err: HttpErrorResponse): string {
+    const backend = err.error as any;
+
+    // casos comuns:
+    // - string pura
+    // - { message }
+    // - { Message }
+    // - TOTVS: { code, message, detailedMessage, ... }
+    const msg =
+      (typeof backend === 'string' && backend) ||
+      backend?.message ||
+      backend?.Message ||
+      backend?.detailedMessage ||
+      backend?.DetailedMessage ||
+      err.message;
+
+    return (msg && String(msg).trim()) || 'Falha ao salvar.';
+  }
 
   save(): void {
     this.errorMsg = '';
     this.successMsg = '';
-    this.form.markAllAsTouched();
 
-    if (this.form.invalid || this.items.length === 0) {
+    this.form.markAllAsTouched();
+    this.items.controls.forEach((g) => g.markAllAsTouched());
+
+    if (!this.canSave()) {
       this.errorMsg = 'Revise os campos obrigatórios.';
       return;
     }
 
     const ccCode = this.form.controls.costCenterCode.value;
-    const cc = this.costCenters.find(x => x.code === ccCode);
+    const cc = this.costCenters.find((x) => x.code === ccCode);
 
     const vm: ReembolsoFormVM = {
       costCenterCode: ccCode,
@@ -207,8 +261,8 @@ export class ReembolsoNovoPage implements OnInit {
         const unitPrice = Number(g.get('unitPrice')?.value);
         const taskId = Number(g.get('taskId')?.value);
 
-        const exp = this.expenses.find(e => e.id === expenseId);
-        const proj = this.projects.find(p => p.id === projectId);
+        const exp = this.expenses.find((e) => e.id === expenseId);
+        const proj = this.projects.find((p) => p.id === projectId);
 
         return {
           expenseTypeId: expenseId,
@@ -222,18 +276,37 @@ export class ReembolsoNovoPage implements OnInit {
       }),
     };
 
-    const payload = buildMovementPayload(vm);
+    let payload: any;
+
+    try {
+      payload = buildMovementPayload(vm);
+    } catch (e: any) {
+      this.saving = false;
+      this.errorMsg = e?.message ? String(e.message) : 'Falha ao montar payload.';
+      return;
+    }
 
     this.saving = true;
+
     this.api.saveMovement(payload).subscribe({
       next: () => {
         this.saving = false;
-        this.successMsg = 'Solicitação enviada (mock). Redirecionando...';
-        setTimeout(() => this.router.navigateByUrl('/solicitacoes'), 600);
+
+        addLocalRequest({
+          id: `local_${Date.now()}`,
+          type: 'Reembolso',
+          costCenter: cc ? `${cc.code} — ${cc.name}` : ccCode,
+          date: new Date().toLocaleDateString('pt-BR'),
+          total: this.total(),
+          status: 'Em Aprovação',
+        });
+
+        this.successMsg = 'Solicitação enviada. Redirecionando...';
+        setTimeout(() => this.router.navigateByUrl('/solicitacoes'), 500);
       },
-      error: (err) => {
+      error: (err: HttpErrorResponse) => {
         this.saving = false;
-        this.errorMsg = err?.error?.message ?? 'Falha ao salvar (mock).';
+        this.errorMsg = this.extractBackendMessage(err);
       },
     });
   }

@@ -1,10 +1,22 @@
 import { environment } from '../../../environments/environment';
 
+const base = environment.apiBaseUrl.replace(/\/$/, '');
+
 export const API = {
-  base: environment.apiBaseUrl,
-  costCenters: () => `${environment.apiBaseUrl}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.001/0/T/`,
-  projects:    () => `${environment.apiBaseUrl}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.002/0/T/`,
-  expenses:    () => `${environment.apiBaseUrl}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.003/0/T/`,
-  userRequests: () => `${environment.apiBaseUrl}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.004/0/T`,
-  movements:   () => `${environment.apiBaseUrl}/mov/v1/Movements/`,
+  base,
+
+  costCenters: () =>
+    `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.001/0/T/`,
+
+  projects: () =>
+    `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.002/0/T/`,
+
+  expenses: () =>
+    `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.003/0/T/`,
+
+  userRequests: () =>
+    `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.004/0/T/`,
+
+  movements: () =>
+    `${base}/mov/v1/Movements`,
 };

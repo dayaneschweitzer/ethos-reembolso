@@ -1,0 +1,8 @@
+{
+  "/api": {
+    "target": "http://sjdr.ethosvirtual.com:8051",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "debug"
+  }
+}
