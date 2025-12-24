@@ -57,6 +57,7 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
             <th style="width:80px;"></th>
           </tr>
         </thead>
+
         <tbody>
           <tr *ngFor="let g of items.controls; let i = index" [formGroup]="$any(g)">
             <td>
@@ -79,27 +80,28 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
               <div class="small" *ngIf="isInvalid(i, 'projectId')">Selecione um projeto.</div>
             </td>
 
+            <td>
+              <ng-container *ngIf="taskOptions(i).length > 0; else manualTask">
+                <select formControlName="taskId">
+                  <option [value]="0" disabled>Selecione...</option>
+                  <option *ngFor="let t of taskOptions(i)" [value]="t.id">
+                    {{ t.id }} — {{ t.name }}
+                  </option>
+                </select>
+                <div class="small" *ngIf="isLoadingTasks(i)">Carregando tarefas...</div>
+              </ng-container>
 
-<td>
-  <ng-container *ngIf="taskOptions(i).length > 0; else manualTask">
-    <select formControlName="taskId">
-      <option [value]="0" disabled>Selecione...</option>
-      <option *ngFor="let t of taskOptions(i)" [value]="t.id">
-        {{ t.id }} — {{ t.name }}
-      </option>
-    </select>
-    <div class="small" *ngIf="isLoadingTasks(i)">Carregando tarefas...</div>
-  </ng-container>
+              <ng-template #manualTask>
+                <div class="task-cell">
+                  <input type="number" min="1" placeholder="ID da tarefa" formControlName="taskId" (input)="noop()" />
+                  <div class="task-help">
+                    Informe o <b>IDTRF</b> válido do RM para o projeto selecionado.
+                  </div>
+                </div>
+              </ng-template>
 
-  <ng-template #manualTask>
-    <input type="number" min="1" placeholder="ID da tarefa" formControlName="taskId" (input)="noop()" />
-    <div class="small">
-      Se não aparecer lista, informe o <b>IDTRF</b> válido do RM para o projeto selecionado.
-    </div>
-  </ng-template>
-
-  <div class="small" *ngIf="isInvalid(i, 'taskId')">Selecione/informe uma tarefa.</div>
-</td>
+              <div class="small" *ngIf="isInvalid(i, 'taskId')"></div>
+            </td>
 
             <td>
               <input
@@ -134,11 +136,53 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
 
     <div class="card">
       <h2>Comprovantes</h2>
-      <div class="dropzone">
-        <div style="margin-bottom:8px;">Clique para selecionar</div>
-        <input type="file" multiple (change)="onFiles($event)" />
-        <div class="small" style="margin-top:10px;" *ngIf="files.length">
-          <div *ngFor="let f of files">• {{ f.name }}</div>
+
+      <div
+        class="dropzone"
+        [class.dropzone--active]="dragActive"
+        (click)="fileInput.click()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)"
+        tabindex="0"
+        (keydown.enter)="fileInput.click()"
+        (keydown.space)="fileInput.click()"
+        role="button"
+        aria-label="Área para anexar comprovantes. Arraste e solte ou clique para selecionar."
+      >
+        <input
+          #fileInput
+          type="file"
+          multiple
+          (change)="onFiles($event)"
+          style="display:none;"
+        />
+
+        <div class="dz-title">Arraste e solte seus comprovantes aqui</div>
+        <div class="dz-sub">
+          ou <span class="dz-link">clique para selecionar</span>
+        </div>
+
+        <div class="small" style="margin-top:8px;" *ngIf="files.length === 0">
+          Você pode anexar múltiplos arquivos.
+        </div>
+
+        <div class="dz-files" *ngIf="files.length">
+          <div class="dz-file" *ngFor="let f of files; let idx = index">
+            <span class="dz-name">{{ f.name }}</span>
+            <button
+              type="button"
+              class="link"
+              (click)="removeFile(idx); $event.stopPropagation()"
+              aria-label="Remover arquivo"
+            >
+              remover
+            </button>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px; color:#b91c1c;" *ngIf="filesMsg">
+          {{ filesMsg }}
         </div>
       </div>
 
@@ -152,6 +196,59 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
       <div class="small" style="margin-top:10px;" *ngIf="errorMsg">{{ errorMsg }}</div>
       <div class="small" style="margin-top:10px; color: #065f46;" *ngIf="successMsg">{{ successMsg }}</div>
     </div>
+
+    <style>
+      .dropzone {
+        border: 2px dashed rgba(148, 163, 184, 0.9);
+        border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+        cursor: pointer;
+        user-select: none;
+        transition: border-color 120ms ease, background 120ms ease;
+        background: rgba(148, 163, 184, 0.06);
+        outline: none;
+      }
+      .dropzone:hover {
+        border-color: rgba(59, 130, 246, 0.9);
+        background: rgba(59, 130, 246, 0.06);
+      }
+      .dropzone--active {
+        border-color: rgba(59, 130, 246, 0.95);
+        background: rgba(59, 130, 246, 0.10);
+      }
+      .dz-title {
+        font-weight: 700;
+      }
+      .dz-sub {
+        margin-top: 6px;
+        opacity: 0.9;
+      }
+      .dz-link {
+        color: var(--primary);
+        font-weight: 700;
+        text-decoration: underline;
+      }
+      .dz-files {
+        margin-top: 14px;
+        text-align: left;
+        display: grid;
+        gap: 8px;
+      }
+      .dz-file {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.04);
+      }
+      .dz-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    </style>
   `,
 })
 export class ReembolsoNovoPage implements OnInit {
@@ -162,11 +259,15 @@ export class ReembolsoNovoPage implements OnInit {
   costCenters: CostCenter[] = [];
   projects: Project[] = [];
   expenses: ExpenseType[] = [];
-  files: File[] = [];
 
+  // Comprovantes
+  files: File[] = [];
+  dragActive = false;
+  filesMsg = '';
+
+  // Cache de tarefas por projeto (IDPRJ)
   tasksByProject: Record<number, Task[]> = {};
   tasksLoading: Record<number, boolean> = {};
-
 
   form = this.fb.nonNullable.group({
     costCenterCode: ['', Validators.required],
@@ -204,22 +305,21 @@ export class ReembolsoNovoPage implements OnInit {
     this.items.removeAt(i);
   }
 
-syncTask(i: number): void {
-  const group = this.items.at(i);
-  const expenseId = Number(group.get('expenseTypeId')?.value);
-  const exp = this.expenses.find((e) => e.id === expenseId);
+  syncTask(i: number): void {
+    const group = this.items.at(i);
+    const expenseId = Number(group.get('expenseTypeId')?.value);
+    const exp = this.expenses.find((e) => e.id === expenseId);
 
-  const expenseTaskId = exp?.taskId ? Number(exp.taskId) : 0;
-  if (!expenseTaskId || expenseTaskId <= 0) return;
+    const expenseTaskId = exp?.taskId ? Number(exp.taskId) : 0;
+    if (!expenseTaskId || expenseTaskId <= 0) return;
 
-  const projectId = Number(group.get('projectId')?.value);
-  const opts = projectId ? this.tasksByProject[projectId] ?? [] : [];
+    const projectId = Number(group.get('projectId')?.value);
+    const opts = projectId ? this.tasksByProject[projectId] ?? [] : [];
 
-  if (opts.length && !opts.some((t) => t.id === expenseTaskId)) return;
+    if (opts.length && !opts.some((t) => t.id === expenseTaskId)) return;
 
-  group.get('taskId')?.setValue(expenseTaskId);
-}
-
+    group.get('taskId')?.setValue(expenseTaskId);
+  }
 
   isInvalid(i: number, controlName: string): boolean {
     const g = this.items.at(i);
@@ -227,63 +327,63 @@ syncTask(i: number): void {
     return !!(c && c.touched && c.invalid);
   }
 
-taskOptions(i: number): Task[] {
-  const g = this.items.at(i);
-  const pid = Number(g.get('projectId')?.value);
-  if (!pid) return [];
-  return this.tasksByProject[pid] ?? [];
-}
-
-isLoadingTasks(i: number): boolean {
-  const g = this.items.at(i);
-  const pid = Number(g.get('projectId')?.value);
-  return !!(pid && this.tasksLoading[pid]);
-}
-
-onProjectChange(i: number): void {
-  const g = this.items.at(i);
-  const pid = Number(g.get('projectId')?.value);
-  if (!pid) return;
-
-  this.ensureTasksLoaded(pid, g);
-}
-
-private ensureTasksLoaded(projectId: number, group: any): void {
-  if (this.tasksByProject[projectId]?.length) {
-    this.ensureTaskIsValid(projectId, group);
-    return;
+  taskOptions(i: number): Task[] {
+    const g = this.items.at(i);
+    const pid = Number(g.get('projectId')?.value);
+    if (!pid) return [];
+    return this.tasksByProject[pid] ?? [];
   }
-  if (this.tasksLoading[projectId]) return;
 
-  this.tasksLoading[projectId] = true;
+  isLoadingTasks(i: number): boolean {
+    const g = this.items.at(i);
+    const pid = Number(g.get('projectId')?.value);
+    return !!(pid && this.tasksLoading[pid]);
+  }
 
-  this.api.getTasksByProject(projectId).subscribe({
-    next: (tasks) => {
-      this.tasksByProject[projectId] = tasks ?? [];
-      this.tasksLoading[projectId] = false;
+  onProjectChange(i: number): void {
+    const g = this.items.at(i);
+    const pid = Number(g.get('projectId')?.value);
+    if (!pid) return;
+
+    this.ensureTasksLoaded(pid, g);
+  }
+
+  private ensureTasksLoaded(projectId: number, group: any): void {
+    if (this.tasksByProject[projectId]?.length) {
       this.ensureTaskIsValid(projectId, group);
-    },
-    error: () => {
-      this.tasksByProject[projectId] = [];
-      this.tasksLoading[projectId] = false;
-    },
-  });
-}
+      return;
+    }
+    if (this.tasksLoading[projectId]) return;
 
-private ensureTaskIsValid(projectId: number, group: any): void {
-  const tasks = this.tasksByProject[projectId] ?? [];
-  if (!tasks.length) return;
+    this.tasksLoading[projectId] = true;
 
-  const current = Number(group.get('taskId')?.value);
-  if (!current || current <= 0 || !tasks.some((t) => t.id === current)) {
-    group.get('taskId')?.setValue(tasks[0].id);
+    this.api.getTasksByProject(projectId).subscribe({
+      next: (tasks) => {
+        this.tasksByProject[projectId] = tasks ?? [];
+        this.tasksLoading[projectId] = false;
+        this.ensureTaskIsValid(projectId, group);
+      },
+      error: () => {
+        this.tasksByProject[projectId] = [];
+        this.tasksLoading[projectId] = false;
+      },
+    });
   }
-}
+
+  private ensureTaskIsValid(projectId: number, group: any): void {
+    const tasks = this.tasksByProject[projectId] ?? [];
+    if (!tasks.length) return;
+
+    const current = Number(group.get('taskId')?.value);
+    if (!current || current <= 0 || !tasks.some((t) => t.id === current)) {
+      group.get('taskId')?.setValue(tasks[0].id);
+    }
+  }
 
   lineTotal(i: number): number {
     const g = this.items.at(i);
     const unit = Number(g.get('unitPrice')?.value ?? 0);
-    return unit; 
+    return unit; // quantidade sempre 1
   }
 
   total(): number {
@@ -294,10 +394,59 @@ private ensureTaskIsValid(projectId: number, group: any): void {
     return formatBRL(v);
   }
 
+  // ===== Comprovantes (drag & drop + selecionar) =====
+
+  onDragOver(ev: DragEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.dragActive = true;
+  }
+
+  onDragLeave(ev: DragEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.dragActive = false;
+  }
+
+  onDrop(ev: DragEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.dragActive = false;
+
+    const list = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
+    this.addFiles(list);
+  }
+
   onFiles(ev: Event): void {
     const input = ev.target as HTMLInputElement;
-    this.files = input.files ? Array.from(input.files) : [];
+    const list = input.files ? Array.from(input.files) : [];
+    this.addFiles(list);
+
+    // permite selecionar o mesmo arquivo novamente se o usuário quiser
+    input.value = '';
   }
+
+  private addFiles(incoming: File[]): void {
+    this.filesMsg = '';
+
+    if (!incoming.length) return;
+
+    // Dedup simples por (name+size+lastModified)
+    const key = (f: File) => `${f.name}__${f.size}__${f.lastModified}`;
+    const existing = new Map(this.files.map((f) => [key(f), f] as const));
+
+    for (const f of incoming) {
+      existing.set(key(f), f);
+    }
+
+    this.files = Array.from(existing.values());
+  }
+
+  removeFile(idx: number): void {
+    this.files = this.files.filter((_, i) => i !== idx);
+  }
+
+  // ================================================
 
   cancel(): void {
     this.router.navigateByUrl('/solicitacoes');

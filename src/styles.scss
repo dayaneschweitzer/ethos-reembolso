@@ -88,6 +88,7 @@ button.link {
   padding: 10px 8px;
   text-align: left;
   font-size: 14px;
+  vertical-align: top;
 }
 .table th {
   font-size: 12px;
@@ -136,4 +137,15 @@ button.link {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: #1d4ed8;
+}
+.task-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-help {
+  margin-top: 12px; 
+  font-size: 12px;
+  opacity: 0.85;
+  line-height: 1.2;
 }
