@@ -8,6 +8,7 @@ import { ApiClient } from '../../../core/api/api-client';
 import { CostCenter } from '../../../core/models/cost-center.model';
 import { Project } from '../../../core/models/project.model';
 import { ExpenseType } from '../../../core/models/expense.model';
+import { Task } from '../../../core/models/task.model';
 import { sum, formatBRL } from '../../../core/shared/utils/money';
 import { buildMovementPayload, ReembolsoFormVM } from '../reembolso.mapper';
 
@@ -50,6 +51,7 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
             <th style="min-width:220px;">Tipo de Despesa</th>
             <th style="width:90px;">Qtd</th>
             <th style="min-width:180px;">Projeto</th>
+            <th style="min-width:220px;">Tarefa</th>
             <th style="width:160px;">Valor (R$)</th>
             <th style="width:140px;">Total</th>
             <th style="width:80px;"></th>
@@ -70,12 +72,34 @@ import { addLocalRequest } from '../../../core/shared/local-requests';
             </td>
 
             <td>
-              <select formControlName="projectId">
+              <select formControlName="projectId" (change)="onProjectChange(i)">
                 <option value="" disabled>Selecione...</option>
                 <option *ngFor="let p of projects" [value]="p.id">{{ p.name }}</option>
               </select>
               <div class="small" *ngIf="isInvalid(i, 'projectId')">Selecione um projeto.</div>
             </td>
+
+
+<td>
+  <ng-container *ngIf="taskOptions(i).length > 0; else manualTask">
+    <select formControlName="taskId">
+      <option [value]="0" disabled>Selecione...</option>
+      <option *ngFor="let t of taskOptions(i)" [value]="t.id">
+        {{ t.id }} — {{ t.name }}
+      </option>
+    </select>
+    <div class="small" *ngIf="isLoadingTasks(i)">Carregando tarefas...</div>
+  </ng-container>
+
+  <ng-template #manualTask>
+    <input type="number" min="1" placeholder="ID da tarefa" formControlName="taskId" (input)="noop()" />
+    <div class="small">
+      Se não aparecer lista, informe o <b>IDTRF</b> válido do RM para o projeto selecionado.
+    </div>
+  </ng-template>
+
+  <div class="small" *ngIf="isInvalid(i, 'taskId')">Selecione/informe uma tarefa.</div>
+</td>
 
             <td>
               <input
@@ -140,6 +164,10 @@ export class ReembolsoNovoPage implements OnInit {
   expenses: ExpenseType[] = [];
   files: File[] = [];
 
+  tasksByProject: Record<number, Task[]> = {};
+  tasksLoading: Record<number, boolean> = {};
+
+
   form = this.fb.nonNullable.group({
     costCenterCode: ['', Validators.required],
     items: this.fb.array([]),
@@ -163,7 +191,7 @@ export class ReembolsoNovoPage implements OnInit {
     const g = this.fb.nonNullable.group({
       expenseTypeId: ['', Validators.required],
       projectId: ['', Validators.required],
-      taskId: [301, Validators.required],
+      taskId: [0, [Validators.required, Validators.min(1)]],
       quantity: [{ value: 1, disabled: true }],
       unitPrice: [0, [Validators.required, Validators.min(0.01)]],
     });
@@ -176,12 +204,22 @@ export class ReembolsoNovoPage implements OnInit {
     this.items.removeAt(i);
   }
 
-  syncTask(i: number): void {
-    const group = this.items.at(i);
-    const expenseId = Number(group.get('expenseTypeId')?.value);
-    const exp = this.expenses.find((e) => e.id === expenseId);
-    if (exp) group.get('taskId')?.setValue(exp.taskId);
-  }
+syncTask(i: number): void {
+  const group = this.items.at(i);
+  const expenseId = Number(group.get('expenseTypeId')?.value);
+  const exp = this.expenses.find((e) => e.id === expenseId);
+
+  const expenseTaskId = exp?.taskId ? Number(exp.taskId) : 0;
+  if (!expenseTaskId || expenseTaskId <= 0) return;
+
+  const projectId = Number(group.get('projectId')?.value);
+  const opts = projectId ? this.tasksByProject[projectId] ?? [] : [];
+
+  if (opts.length && !opts.some((t) => t.id === expenseTaskId)) return;
+
+  group.get('taskId')?.setValue(expenseTaskId);
+}
+
 
   isInvalid(i: number, controlName: string): boolean {
     const g = this.items.at(i);
@@ -189,10 +227,63 @@ export class ReembolsoNovoPage implements OnInit {
     return !!(c && c.touched && c.invalid);
   }
 
+taskOptions(i: number): Task[] {
+  const g = this.items.at(i);
+  const pid = Number(g.get('projectId')?.value);
+  if (!pid) return [];
+  return this.tasksByProject[pid] ?? [];
+}
+
+isLoadingTasks(i: number): boolean {
+  const g = this.items.at(i);
+  const pid = Number(g.get('projectId')?.value);
+  return !!(pid && this.tasksLoading[pid]);
+}
+
+onProjectChange(i: number): void {
+  const g = this.items.at(i);
+  const pid = Number(g.get('projectId')?.value);
+  if (!pid) return;
+
+  this.ensureTasksLoaded(pid, g);
+}
+
+private ensureTasksLoaded(projectId: number, group: any): void {
+  if (this.tasksByProject[projectId]?.length) {
+    this.ensureTaskIsValid(projectId, group);
+    return;
+  }
+  if (this.tasksLoading[projectId]) return;
+
+  this.tasksLoading[projectId] = true;
+
+  this.api.getTasksByProject(projectId).subscribe({
+    next: (tasks) => {
+      this.tasksByProject[projectId] = tasks ?? [];
+      this.tasksLoading[projectId] = false;
+      this.ensureTaskIsValid(projectId, group);
+    },
+    error: () => {
+      this.tasksByProject[projectId] = [];
+      this.tasksLoading[projectId] = false;
+    },
+  });
+}
+
+private ensureTaskIsValid(projectId: number, group: any): void {
+  const tasks = this.tasksByProject[projectId] ?? [];
+  if (!tasks.length) return;
+
+  const current = Number(group.get('taskId')?.value);
+  if (!current || current <= 0 || !tasks.some((t) => t.id === current)) {
+    group.get('taskId')?.setValue(tasks[0].id);
+  }
+}
+
   lineTotal(i: number): number {
     const g = this.items.at(i);
     const unit = Number(g.get('unitPrice')?.value ?? 0);
-    return unit; // quantidade sempre 1
+    return unit; 
   }
 
   total(): number {
@@ -221,11 +312,6 @@ export class ReembolsoNovoPage implements OnInit {
   private extractBackendMessage(err: HttpErrorResponse): string {
     const backend = err.error as any;
 
-    // casos comuns:
-    // - string pura
-    // - { message }
-    // - { Message }
-    // - TOTVS: { code, message, detailedMessage, ... }
     const msg =
       (typeof backend === 'string' && backend) ||
       backend?.message ||
@@ -276,15 +362,7 @@ export class ReembolsoNovoPage implements OnInit {
       }),
     };
 
-    let payload: any;
-
-    try {
-      payload = buildMovementPayload(vm);
-    } catch (e: any) {
-      this.saving = false;
-      this.errorMsg = e?.message ? String(e.message) : 'Falha ao montar payload.';
-      return;
-    }
+    const payload = buildMovementPayload(vm);
 
     this.saving = true;
 

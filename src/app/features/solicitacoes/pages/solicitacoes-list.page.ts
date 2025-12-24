@@ -143,7 +143,6 @@ export class SolicitacoesListPage implements OnInit {
   selected: RequestListItem | null = null;
   filter: FilterType = 'Todos';
 
-  // Ordenação
   sortKey: SortKey = 'date';
   sortDir: SortDir = 'desc';
 
@@ -166,7 +165,6 @@ export class SolicitacoesListPage implements OnInit {
 
     from(pages)
       .pipe(
-        // mantendo a estratégia atual, sem paginação na API
         concatMap(() =>
           this.api.getUserRequests(code).pipe(
             catchError((err) => {
@@ -179,13 +177,12 @@ export class SolicitacoesListPage implements OnInit {
         finalize(() => (this.loading = false))
       )
       .subscribe({
-        next: (all) => {
-          // remove duplicados
+        next: (all) => {          
           const uniq = new Map<string, RequestListItem>();
           for (const it of all) uniq.set(String(it.id), it);
 
           this.items = Array.from(uniq.values());
-          this.applyFilter(); // aplica filtro + ordenação
+          this.applyFilter(); 
         },
         error: (err) => {
           console.error('[getUserRequests] erro geral', err);
@@ -207,7 +204,6 @@ export class SolicitacoesListPage implements OnInit {
       this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
     } else {
       this.sortKey = key;
-      // padrão: data DESC, número DESC (você pode mudar aqui se quiser)
       this.sortDir = key === 'date' ? 'desc' : 'desc';
     }
     this.applySort();
@@ -247,7 +243,6 @@ export class SolicitacoesListPage implements OnInit {
         return this.compareId(a.id, b.id) * dir;
       }
 
-      // sortKey === 'id'
       return this.compareId(a.id, b.id) * dir;
     });
   }

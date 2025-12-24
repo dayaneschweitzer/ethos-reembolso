@@ -7,12 +7,10 @@ function base64Utf8(input: string): string {
 }
 
 export const authInterceptorFn: HttpInterceptorFn = (req, next) => {
-  // Só injeta o header nas chamadas do seu backend
   if (!req.url.startsWith('/api/')) {
     return next(req);
   }
 
-  // evita duplicar
   if (req.headers.has('Authorization')) {
     return next(req);
   }

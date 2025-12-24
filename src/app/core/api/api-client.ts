@@ -1,12 +1,12 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, tap, of } from 'rxjs';
-import { catchError, switchMap } from 'rxjs/operators';
+import { Observable, map, tap, catchError, of } from 'rxjs';
 import { API } from './api-endpoints';
 
 import { CostCenter } from '../models/cost-center.model';
 import { Project } from '../models/project.model';
 import { ExpenseType } from '../models/expense.model';
+import { Task } from '../models/task.model';
 import { RequestListItem } from '../models/request.model';
 
 type AnyRow = Record<string, any>;
@@ -42,6 +42,7 @@ function toStringSafe(v: any, fallback = ''): string {
 function toBRDate(value: any): string {
   const s = toStringSafe(value, '');
   if (!s) return '-';
+
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
 
   const d = new Date(s);
@@ -51,11 +52,7 @@ function toBRDate(value: any): string {
 }
 
 function inferType(row: AnyRow): 'Reembolso' | 'Adiantamento' {
-  const tipo = toStringSafe(
-    pick(row, ['TIPO', 'type', 'TIPOSOL', 'TIPOSOLICITACAO']),
-    ''
-  ).toLowerCase();
-
+  const tipo = toStringSafe(pick(row, ['TIPO', 'type', 'TIPOSOL', 'TIPOSOLICITACAO']), '').toLowerCase();
   if (tipo.includes('adi')) return 'Adiantamento';
   if (tipo.includes('reemb')) return 'Reembolso';
 
@@ -67,14 +64,10 @@ function inferType(row: AnyRow): 'Reembolso' | 'Adiantamento' {
 }
 
 function inferStatus(row: AnyRow): RequestListItem['status'] {
-  const s = toStringSafe(
-    pick(row, ['STATUS', 'SITUACAO', 'STATUSDESC', 'status']),
-    'Em Aprovação'
-  ).toLowerCase();
+  const s = toStringSafe(pick(row, ['STATUS', 'SITUACAO', 'STATUSDESC', 'status']), 'Em Aprovação').toLowerCase();
 
   if (s.includes('pago') || s.includes('quit')) return 'Pago';
   if (s.includes('aprov')) return 'Aprovado';
-
   return 'Em Aprovação';
 }
 
@@ -98,8 +91,16 @@ export class ApiClient {
           .map((r) => {
             const id = toNumber(
               pick(r, [
-                'ID','IDPROJETO','ID_PROJETO','PROJECTID','PROJETO_ID','IDPRJ',
-                'IDPRJPROJETO','CODPROJETO','COD_PROJETO','CODPRJ',
+                'ID',
+                'IDPROJETO',
+                'ID_PROJETO',
+                'PROJECTID',
+                'PROJETO_ID',
+                'IDPRJ',
+                'IDPRJPROJETO',
+                'CODPROJETO',
+                'COD_PROJETO',
+                'CODPRJ',
               ]),
               0
             );
@@ -116,6 +117,44 @@ export class ApiClient {
     );
   }
 
+
+getTasksByProject(projectId: number): Observable<Task[]> {
+  // A consulta ETH.REEM.005 deve retornar as tarefas (MTAREFA) filtradas por IDPRJ.
+  // Se seu RM usa outro nome de parâmetro, ajuste aqui.
+  const params = new HttpParams().set('parameters', `IDPRJ=${projectId}`);
+
+  return this.http.get<any>(API.tasksByProject(), { params }).pipe(
+    tap((resp) => console.debug('[ETH.REEM.005] raw:', resp)),
+    map((resp) => normalizeRows<AnyRow>(resp)),
+    map((rows) =>
+      (rows ?? [])
+        .map((r) => {
+          const id = toNumber(
+            pick(r, ['IDTRF', 'IDTAREFA', 'ID_TAREFA', 'TASKID', 'TASK_ID', 'ID']),
+            0
+          );
+
+          const name = toStringSafe(
+            pick(r, ['NOME', 'NOMETAREFA', 'NOME_TAREFA', 'DESCRICAO', 'DESCR', 'TAREFA', 'NAME']),
+            ''
+          );
+
+          const pid = toNumber(
+            pick(r, ['IDPRJ', 'IDPROJETO', 'ID_PROJETO', 'PROJECTID', 'PROJECT_ID']),
+            projectId
+          );
+
+          return { id, name, projectId: pid } as Task;
+        })
+        .filter((t) => t.id > 0 && !!t.name)
+    ),
+    catchError((err) => {
+      console.warn('[ETH.REEM.005] falha ao carregar tarefas:', err);
+      return of([] as Task[]);
+    })
+  );
+}
+
   getExpenses(): Observable<ExpenseType[]> {
     return this.http.get<any>(API.expenses()).pipe(
       tap((resp) => console.debug('[ETH.REEM.003] raw:', resp)),
@@ -124,26 +163,44 @@ export class ApiClient {
         (rows ?? [])
           .map((r, idx) => {
             const idRaw = pick(r, [
-              'ID','IDDESPESA','ID_DESPESA','CODDESPESA','COD_DESPESA',
-              'CODIGO','COD','CODTB2','CODTBDESP','EXPENSEID',
+              'ID',
+              'IDDESPESA',
+              'ID_DESPESA',
+              'CODDESPESA',
+              'COD_DESPESA',
+              'CODIGO',
+              'COD',
+              'CODTB2',
+              'CODTBDESP',
+              'EXPENSEID',
             ]);
 
             const id = toNumber(idRaw, idx + 1);
 
             const name = toStringSafe(
               pick(r, [
-                'NOME','NOMEDESPESA','NOME_DESPESA','DESPESA','DESCRICAO','DESCR',
-                'DESCRICAODESPESA','DESCRICAO_DESPESA','NAME',
+                'NOME',
+                'NOMEDESPESA',
+                'NOME_DESPESA',
+                'DESPESA',
+                'DESCRICAO',
+                'DESCR',
+                'DESCRICAODESPESA',
+                'DESCRICAO_DESPESA',
+                'NAME',
               ]),
               ''
             );
 
-            const taskId = toNumber(
-              pick(r, ['TASKID', 'IDTAREFA', 'ID_TAREFA', 'TAREFAID', 'TASK_ID', 'CODTAREFA', 'IDTRF']),
-              301
-            );
+            const taskIdMaybe = toNumber(
+  pick(r, ['TASKID', 'IDTAREFA', 'ID_TAREFA', 'TAREFAID', 'TASK_ID', 'CODTAREFA', 'IDTRF']),
+  0
+);
 
-            return { id, name, taskId } as ExpenseType;
+// Importante: não "chute" uma tarefa padrão (ex.: 301). Se não vier do RM, o usuário precisa selecionar uma tarefa válida para o projeto.
+const taskId = taskIdMaybe > 0 ? taskIdMaybe : undefined;
+
+return { id, name, taskId } as ExpenseType;
           })
           .filter((e) => !!e.name)
       )
@@ -151,33 +208,29 @@ export class ApiClient {
   }
 
   getUserRequests(userCode: string): Observable<RequestListItem[]> {
-    const call = (parametersValue: string) => {
-      const params = new HttpParams().set('parameters', parametersValue);
+    const params = new HttpParams().set('parameters', `USUARIO='${userCode}'`);
 
-      return this.http.get<any>(API.userRequests(), { params }).pipe(
-        tap((resp) => console.debug('[ETH.REEM.004] params=', parametersValue, 'raw:', resp)),
-        map((resp) => normalizeRows<AnyRow>(resp)),
-        catchError((err) => {
-          console.error('[ETH.REEM.004] erro com params=', parametersValue, err);
-          return of([] as AnyRow[]);
-        })
-      );
-    };
-
-    return call(`USUARIO=${userCode}`).pipe(
-      switchMap((rows) => (rows.length ? of(rows) : call(`USUARIO='${userCode}'`))),
+    return this.http.get<any>(API.userRequests(), { params }).pipe(
+      tap((resp) => console.debug('[ETH.REEM.004] raw:', resp)),
+      map((resp) => normalizeRows<AnyRow>(resp)),
       map((rows) =>
         rows.map((r) => {
-          const id = toStringSafe(r?.['NUMEROMOV'], toStringSafe(r?.['IDMOV'], '(sem id)'));
+          const id = toStringSafe(
+            pick(r, ['ID', 'REQ', 'REQUISICAO', 'NUMERO', 'NUMMOV', 'CODMOV', 'DOCUMENTO']),
+            '(sem id)'
+          );
+
           const type = inferType(r);
 
           const costCenter = toStringSafe(
-            r?.['CODCCUSTO'],
-            toStringSafe(pick(r, ['NOMECCUSTO', 'CENTRODECUSTO', 'CCUSTO', 'costCenter']), '-')
+            pick(r, ['NOMECCUSTO', 'CENTRODECUSTO', 'CCUSTO', 'CODCCUSTO', 'CUSTOCENTER', 'costCenter']),
+            '-'
           );
 
-          const date = toBRDate(r?.['DATAEMISSAO']);
-          const total = toNumber(r?.['VALORBRUTOORIG'], 0);
+          const date = toBRDate(pick(r, ['DATA', 'DTEMISSAO', 'DT_EMISSAO', 'DATE', 'registerDate']));
+
+          const total = toNumber(pick(r, ['TOTAL', 'VALOR', 'VLR', 'VLRTOTAL', 'GROSSVALUE', 'netValue']), 0);
+
           const status = inferStatus(r);
 
           return { id, type, costCenter, date, total, status } as RequestListItem;
@@ -186,7 +239,11 @@ export class ApiClient {
     );
   }
 
-  saveMovement(payload: unknown): Observable<any> {
+  createMovement(payload: unknown): Observable<any> {
     return this.http.post(API.movements(), payload);
+  }
+
+  saveMovement(payload: unknown): Observable<any> {
+    return this.createMovement(payload);
   }
 }
