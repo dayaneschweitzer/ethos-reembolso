@@ -40,6 +40,10 @@ type SortDir = 'asc' | 'desc';
         {{ errorMsg }}
       </div>
 
+      <div class="small" style="margin-bottom:10px;" *ngIf="hydrating">
+        Carregando datas e valores do ERP...
+      </div>
+
       <table class="table" *ngIf="!loading; else loadingTpl">
         <thead>
           <tr>
@@ -135,6 +139,7 @@ type SortDir = 'asc' | 'desc';
 })
 export class SolicitacoesListPage implements OnInit {
   loading = true;
+  hydrating = false;
   errorMsg = '';
 
   items: RequestListItem[] = [];
@@ -147,8 +152,7 @@ export class SolicitacoesListPage implements OnInit {
   sortKey: SortKey = 'date';
   sortDir: SortDir = 'desc';
 
-  private readonly pageSize = 50;
-  private readonly maxPagesToScan = 6;
+  private reloadSeq = 0;
 
   constructor(private api: ApiClient) {}
 
@@ -157,12 +161,13 @@ export class SolicitacoesListPage implements OnInit {
   }
 
   reload(): void {
+    const seq = ++this.reloadSeq;
+
     this.loading = true;
+    this.hydrating = false;
     this.errorMsg = '';
     this.selected = null;
 
-    // Importante: no RM, “minhas solicitações” pode estar amarrado ao *usuário RM* (ex.: web)
-    // OU ao *código do cliente/fornecedor* (ex.: 00060). Para não depender do SQL, buscamos com ambos.
     const customerVendorCode = String(environment.defaultUserCode ?? '').trim();
     const rmUsername = String(environment.apiAuth?.username ?? '').trim();
 
@@ -186,6 +191,8 @@ export class SolicitacoesListPage implements OnInit {
         finalize(() => (this.loading = false))
       )
       .subscribe((all) => {
+        if (seq !== this.reloadSeq) return;
+
         // remove duplicados
         const uniq = new Map<string, RequestListItem>();
         for (const it of all) uniq.set(String(it.id), it);
@@ -193,12 +200,36 @@ export class SolicitacoesListPage implements OnInit {
         this.items = Array.from(uniq.values());
         this.applyFilter(); // aplica filtro + ordenação
 
-        // Dica prática no próprio app: se não vier nada, sinaliza o que foi tentado.
         if (this.items.length === 0) {
           this.errorMsg =
             `Nenhuma solicitação retornou do ERP. Tentativas: cliente/fornecedor='${customerVendorCode || '-'}' e usuárioRM='${rmUsername || '-'}'. ` +
             `Abra o DevTools > Network e confira a resposta da consulta ETH.REEM.004 (e o parâmetro 'parameters').`;
+          return;
         }
+
+        // ✅ HIDRATA (preenche Data/Total) via /mov/v1/Movements
+        const companyId = (environment as any).rmReemDefaults?.companyId ?? 1;
+
+        this.hydrating = true;
+        this.api
+          .hydrateRequestList(this.items, companyId, 5)
+          .pipe(finalize(() => (this.hydrating = false)))
+          .subscribe({
+            next: (hydrated) => {
+              if (seq !== this.reloadSeq) return;
+              this.items = hydrated ?? this.items;
+              this.applyFilter();
+
+              // se o usuário estiver com um item selecionado, atualiza o detalhe
+              if (this.selected) {
+                const upd = this.items.find((x) => String(x.id) === String(this.selected?.id));
+                if (upd) this.selected = upd;
+              }
+            },
+            error: (err) => {
+              console.warn('[hydrateRequestList] falhou', err);
+            },
+          });
       });
   }
 
@@ -212,7 +243,6 @@ export class SolicitacoesListPage implements OnInit {
       this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
     } else {
       this.sortKey = key;
-      // padrão: data DESC, número DESC (você pode mudar aqui se quiser)
       this.sortDir = key === 'date' ? 'desc' : 'desc';
     }
     this.applySort();
@@ -248,11 +278,9 @@ export class SolicitacoesListPage implements OnInit {
         if (da && db) return (da.getTime() - db.getTime()) * dir;
         if (da && !db) return 1 * dir;
         if (!da && db) return -1 * dir;
-        // fallback por número
         return this.compareId(a.id, b.id) * dir;
       }
 
-      // sortKey === 'id'
       return this.compareId(a.id, b.id) * dir;
     });
   }
