@@ -11,7 +11,6 @@ export const environment = {
     password: 'Ethos@2025@',
   },
 
-  // Defaults que fizeram o POST funcionar no Postman
   rmReemDefaults: {
     companyId: 1,
     branchId: 1,

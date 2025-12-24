@@ -67,7 +67,6 @@ export const REQUESTS_DB = (() => {
       return { ok: true, created: item };
     },
 
-    // opcional: útil para testes
     reset: () => {
       data.splice(0, data.length, ...REQUESTS_SEED);
       saveToStorage(data);

@@ -17,7 +17,6 @@ export const API = {
   userRequests: () =>
     `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.004/0/T/`,
 
-  // Lista tarefas por projeto (IDPRJ). Ajuste o código da consulta caso seu RM use outro.
   tasksByProject: () =>
     `${base}/framework/v1/consultaSQLServer/RealizaConsulta/ETH.REEM.005/0/T/`,
 

@@ -2,7 +2,7 @@ import { RequestListItem } from '../models/request.model';
 
 const KEY = 'ethos.localRequests.v0.1';
 const MAX_ITEMS = 50;
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; 
 
 type Stored = { createdAt: number; item: RequestListItem };
 

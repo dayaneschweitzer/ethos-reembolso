@@ -240,7 +240,6 @@ export class ApiClient {
               ''
             );
 
-            // Importante: não "chutar" tarefa padrão.
             const taskIdMaybe = toNumber(
               pick(r, ['TASKID', 'IDTAREFA', 'ID_TAREFA', 'TAREFAID', 'TASK_ID', 'CODTAREFA', 'IDTRF']),
               0
@@ -364,10 +363,6 @@ export class ApiClient {
     return this.createMovement(payload);
   }
 
-  // ---------------------------
-  // ✅ HIDRATAÇÃO VIA MOVEMENTS
-  // ---------------------------
-
   private extractFirstMovement(resp: any): any | null {
     if (!resp) return null;
 
@@ -395,7 +390,6 @@ export class ApiClient {
     let movId = rawId;
     let internalId = `${companyId}|${rawId}`;
 
-    // Se já vier internalId no formato "1|18151"
     if (rawId.includes('|')) {
       internalId = rawId;
       const parts = rawId.split('|');

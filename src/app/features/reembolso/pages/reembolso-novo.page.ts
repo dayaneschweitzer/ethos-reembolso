@@ -260,12 +260,10 @@ export class ReembolsoNovoPage implements OnInit {
   projects: Project[] = [];
   expenses: ExpenseType[] = [];
 
-  // Comprovantes
   files: File[] = [];
   dragActive = false;
   filesMsg = '';
 
-  // Cache de tarefas por projeto (IDPRJ)
   tasksByProject: Record<number, Task[]> = {};
   tasksLoading: Record<number, boolean> = {};
 
@@ -383,7 +381,7 @@ export class ReembolsoNovoPage implements OnInit {
   lineTotal(i: number): number {
     const g = this.items.at(i);
     const unit = Number(g.get('unitPrice')?.value ?? 0);
-    return unit; // quantidade sempre 1
+    return unit; 
   }
 
   total(): number {
@@ -393,8 +391,6 @@ export class ReembolsoNovoPage implements OnInit {
   brl(v: number): string {
     return formatBRL(v);
   }
-
-  // ===== Comprovantes (drag & drop + selecionar) =====
 
   onDragOver(ev: DragEvent): void {
     ev.preventDefault();
@@ -422,7 +418,6 @@ export class ReembolsoNovoPage implements OnInit {
     const list = input.files ? Array.from(input.files) : [];
     this.addFiles(list);
 
-    // permite selecionar o mesmo arquivo novamente se o usuário quiser
     input.value = '';
   }
 
@@ -431,7 +426,6 @@ export class ReembolsoNovoPage implements OnInit {
 
     if (!incoming.length) return;
 
-    // Dedup simples por (name+size+lastModified)
     const key = (f: File) => `${f.name}__${f.size}__${f.lastModified}`;
     const existing = new Map(this.files.map((f) => [key(f), f] as const));
 
@@ -445,8 +439,6 @@ export class ReembolsoNovoPage implements OnInit {
   removeFile(idx: number): void {
     this.files = this.files.filter((_, i) => i !== idx);
   }
-
-  // ================================================
 
   cancel(): void {
     this.router.navigateByUrl('/solicitacoes');

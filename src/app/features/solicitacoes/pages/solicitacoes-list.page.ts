@@ -148,7 +148,6 @@ export class SolicitacoesListPage implements OnInit {
   selected: RequestListItem | null = null;
   filter: FilterType = 'Todos';
 
-  // Ordenação
   sortKey: SortKey = 'date';
   sortDir: SortDir = 'desc';
 
@@ -193,12 +192,11 @@ export class SolicitacoesListPage implements OnInit {
       .subscribe((all) => {
         if (seq !== this.reloadSeq) return;
 
-        // remove duplicados
         const uniq = new Map<string, RequestListItem>();
         for (const it of all) uniq.set(String(it.id), it);
 
         this.items = Array.from(uniq.values());
-        this.applyFilter(); // aplica filtro + ordenação
+        this.applyFilter(); 
 
         if (this.items.length === 0) {
           this.errorMsg =
@@ -207,7 +205,6 @@ export class SolicitacoesListPage implements OnInit {
           return;
         }
 
-        // ✅ HIDRATA (preenche Data/Total) via /mov/v1/Movements
         const companyId = (environment as any).rmReemDefaults?.companyId ?? 1;
 
         this.hydrating = true;
@@ -220,7 +217,6 @@ export class SolicitacoesListPage implements OnInit {
               this.items = hydrated ?? this.items;
               this.applyFilter();
 
-              // se o usuário estiver com um item selecionado, atualiza o detalhe
               if (this.selected) {
                 const upd = this.items.find((x) => String(x.id) === String(this.selected?.id));
                 if (upd) this.selected = upd;
