@@ -5,8 +5,8 @@ import { ApiClient } from '../../../core/api/api-client';
 import { RequestListItem } from '../../../core/models/request.model';
 import { environment } from '../../../../environments/environment';
 import { formatBRL } from '../../../core/shared/utils/money';
-import { from, of } from 'rxjs';
-import { catchError, concatMap, finalize, reduce } from 'rxjs/operators';
+import { forkJoin, of } from 'rxjs';
+import { catchError, finalize, map } from 'rxjs/operators';
 
 type FilterType = 'Todos' | 'Reembolso' | 'Adiantamento';
 type SortKey = 'id' | 'date';
@@ -143,6 +143,7 @@ export class SolicitacoesListPage implements OnInit {
   selected: RequestListItem | null = null;
   filter: FilterType = 'Todos';
 
+  // Ordenação
   sortKey: SortKey = 'date';
   sortDir: SortDir = 'desc';
 
@@ -160,37 +161,44 @@ export class SolicitacoesListPage implements OnInit {
     this.errorMsg = '';
     this.selected = null;
 
-    const code = environment.defaultUserCode;
-    const pages = Array.from({ length: this.maxPagesToScan }, (_, i) => i + 1);
+    // Importante: no RM, “minhas solicitações” pode estar amarrado ao *usuário RM* (ex.: web)
+    // OU ao *código do cliente/fornecedor* (ex.: 00060). Para não depender do SQL, buscamos com ambos.
+    const customerVendorCode = String(environment.defaultUserCode ?? '').trim();
+    const rmUsername = String(environment.apiAuth?.username ?? '').trim();
 
-    from(pages)
+    const byCustomerVendor$ = customerVendorCode
+      ? this.api.getUserRequests(customerVendorCode)
+      : of([] as RequestListItem[]);
+
+    const byUser$ = rmUsername && rmUsername !== customerVendorCode
+      ? this.api.getUserRequests(rmUsername)
+      : of([] as RequestListItem[]);
+
+    forkJoin({ byCustomerVendor: byCustomerVendor$, byUser: byUser$ })
       .pipe(
-        concatMap(() =>
-          this.api.getUserRequests(code).pipe(
-            catchError((err) => {
-              console.error('[getUserRequests] erro', err);
-              return of([] as RequestListItem[]);
-            })
-          )
-        ),
-        reduce((acc, curr) => acc.concat(curr), [] as RequestListItem[]),
-        finalize(() => (this.loading = false))
-      )
-      .subscribe({
-        next: (all) => {          
-          const uniq = new Map<string, RequestListItem>();
-          for (const it of all) uniq.set(String(it.id), it);
-
-          this.items = Array.from(uniq.values());
-          this.applyFilter(); 
-        },
-        error: (err) => {
+        map(({ byCustomerVendor, byUser }) => [...(byCustomerVendor ?? []), ...(byUser ?? [])]),
+        catchError((err) => {
           console.error('[getUserRequests] erro geral', err);
-          this.items = [];
-          this.filteredItems = [];
           this.errorMsg =
             'Falha ao carregar solicitações. Verifique o console (Network) para ver o status HTTP (401/404/CORS).';
-        },
+          return of([] as RequestListItem[]);
+        }),
+        finalize(() => (this.loading = false))
+      )
+      .subscribe((all) => {
+        // remove duplicados
+        const uniq = new Map<string, RequestListItem>();
+        for (const it of all) uniq.set(String(it.id), it);
+
+        this.items = Array.from(uniq.values());
+        this.applyFilter(); // aplica filtro + ordenação
+
+        // Dica prática no próprio app: se não vier nada, sinaliza o que foi tentado.
+        if (this.items.length === 0) {
+          this.errorMsg =
+            `Nenhuma solicitação retornou do ERP. Tentativas: cliente/fornecedor='${customerVendorCode || '-'}' e usuárioRM='${rmUsername || '-'}'. ` +
+            `Abra o DevTools > Network e confira a resposta da consulta ETH.REEM.004 (e o parâmetro 'parameters').`;
+        }
       });
   }
 
@@ -204,6 +212,7 @@ export class SolicitacoesListPage implements OnInit {
       this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
     } else {
       this.sortKey = key;
+      // padrão: data DESC, número DESC (você pode mudar aqui se quiser)
       this.sortDir = key === 'date' ? 'desc' : 'desc';
     }
     this.applySort();
@@ -243,6 +252,7 @@ export class SolicitacoesListPage implements OnInit {
         return this.compareId(a.id, b.id) * dir;
       }
 
+      // sortKey === 'id'
       return this.compareId(a.id, b.id) * dir;
     });
   }

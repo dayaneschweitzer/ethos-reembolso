@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, tap, catchError, of } from 'rxjs';
+import { Observable, map, tap, catchError, of, from } from 'rxjs';
+import { concatMap, reduce } from 'rxjs/operators';
 import { API } from './api-endpoints';
 
 import { CostCenter } from '../models/cost-center.model';
@@ -17,6 +18,19 @@ function normalizeRows<T = AnyRow>(resp: any): T[] {
   if (resp && Array.isArray(resp.value)) return resp.value as T[];
   if (resp && Array.isArray(resp.data)) return resp.data as T[];
   if (resp && Array.isArray(resp.items)) return resp.items as T[];
+  // Alguns endpoints do RM/consultas SQL retornam outros nomes para o array.
+  if (resp && Array.isArray(resp.result)) return resp.result as T[];
+  if (resp && Array.isArray(resp.results)) return resp.results as T[];
+  if (resp && Array.isArray(resp.rows)) return resp.rows as T[];
+  if (resp && Array.isArray(resp.retorno)) return resp.retorno as T[];
+  if (resp && Array.isArray(resp.return)) return resp.return as T[];
+
+  // Fallback: se existir exatamente um campo-array no objeto, usa ele.
+  if (resp && typeof resp === 'object') {
+    const values = Object.values(resp);
+    const arrays = values.filter((v) => Array.isArray(v)) as any[];
+    if (arrays.length === 1) return arrays[0] as T[];
+  }
   return [];
 }
 
@@ -208,34 +222,68 @@ return { id, name, taskId } as ExpenseType;
   }
 
   getUserRequests(userCode: string): Observable<RequestListItem[]> {
-    const params = new HttpParams().set('parameters', `USUARIO='${userCode}'`);
+    // A consulta ETH.REEM.004 foi criada no RM/TOTVS e pode usar diferentes nomes de parâmetros
+    // (ex.: USUARIO, CODUSUARIO, CODCFO). Como o frontend não tem acesso ao SQL, fazemos tentativas
+    // com variações comuns para maximizar a chance de retorno.
+    const raw = String(userCode ?? '').trim();
 
-    return this.http.get<any>(API.userRequests(), { params }).pipe(
-      tap((resp) => console.debug('[ETH.REEM.004] raw:', resp)),
-      map((resp) => normalizeRows<AnyRow>(resp)),
-      map((rows) =>
-        rows.map((r) => {
-          const id = toStringSafe(
-            pick(r, ['ID', 'REQ', 'REQUISICAO', 'NUMERO', 'NUMMOV', 'CODMOV', 'DOCUMENTO']),
-            '(sem id)'
-          );
+    const attempts: string[] = [];
+    if (raw) {
+      // variações com/sem aspas
+      attempts.push(`USUARIO='${raw}'`, `USUARIO=${raw}`);
+      attempts.push(`CODUSUARIO='${raw}'`, `CODUSUARIO=${raw}`);
+      attempts.push(`CODCFO='${raw}'`, `CODCFO=${raw}`);
+      attempts.push(`CFO='${raw}'`, `CFO=${raw}`);
+      attempts.push(`CLIENTE='${raw}'`, `CLIENTE=${raw}`);
+      attempts.push(`FORNECEDOR='${raw}'`, `FORNECEDOR=${raw}`);
+    }
 
-          const type = inferType(r);
+    const mapRowsToList = (rows: AnyRow[]) =>
+      rows.map((r) => {
+        const id = toStringSafe(
+          pick(r, ['ID', 'REQ', 'REQUISICAO', 'NUMERO', 'NUMMOV', 'IDMOV', 'CODMOV', 'DOCUMENTO']),
+          '(sem id)'
+        );
 
-          const costCenter = toStringSafe(
-            pick(r, ['NOMECCUSTO', 'CENTRODECUSTO', 'CCUSTO', 'CODCCUSTO', 'CUSTOCENTER', 'costCenter']),
-            '-'
-          );
+        const type = inferType(r);
 
-          const date = toBRDate(pick(r, ['DATA', 'DTEMISSAO', 'DT_EMISSAO', 'DATE', 'registerDate']));
+        const costCenter = toStringSafe(
+          pick(r, ['NOMECCUSTO', 'CENTRODECUSTO', 'CCUSTO', 'CODCCUSTO', 'CUSTOCENTER', 'costCenter']),
+          '-'
+        );
 
-          const total = toNumber(pick(r, ['TOTAL', 'VALOR', 'VLR', 'VLRTOTAL', 'GROSSVALUE', 'netValue']), 0);
+        const date = toBRDate(pick(r, ['DATA', 'DTEMISSAO', 'DT_EMISSAO', 'DATE', 'registerDate', 'CREATIONDATE']));
 
-          const status = inferStatus(r);
+        const total = toNumber(pick(r, ['TOTAL', 'VALOR', 'VLR', 'VLRTOTAL', 'GROSSVALUE', 'NETVALUE', 'netValue']), 0);
 
-          return { id, type, costCenter, date, total, status } as RequestListItem;
-        })
-      )
+        const status = inferStatus(r);
+
+        return { id, type, costCenter, date, total, status } as RequestListItem;
+      });
+
+    // Se por algum motivo a consulta não aceitar nenhum parâmetro, tenta uma chamada "nua" também.
+    const attemptsWithEmpty = attempts.length ? [...attempts, ''] : [''];
+
+    return from(attemptsWithEmpty).pipe(
+      concatMap((expr) => {
+        const params = expr ? new HttpParams().set('parameters', expr) : undefined;
+        return this.http.get<any>(API.userRequests(), params ? { params } : {}).pipe(
+          tap((resp) => console.debug('[ETH.REEM.004] tentativa:', expr || '(sem parameters)', 'raw:', resp)),
+          map((resp) => normalizeRows<AnyRow>(resp)),
+          map((rows) => mapRowsToList(rows)),
+          catchError((err) => {
+            console.warn('[ETH.REEM.004] tentativa falhou:', expr || '(sem parameters)', err);
+            return of([] as RequestListItem[]);
+          })
+        );
+      }),
+      reduce((acc, curr) => {
+        // merge + dedup por id
+        const m = new Map<string, RequestListItem>();
+        for (const it of acc) m.set(String(it.id), it);
+        for (const it of curr) m.set(String(it.id), it);
+        return Array.from(m.values());
+      }, [] as RequestListItem[])
     );
   }
 
