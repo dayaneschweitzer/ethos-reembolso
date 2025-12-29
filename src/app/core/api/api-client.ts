@@ -215,7 +215,6 @@ export class ApiClient {
     return this.http.get<any>(API.expenses(), { params }).pipe(
       tap((resp) => console.debug('[ETH.REEM.003][IDPRJ=%s] raw:', projectId, resp)),
       map((resp) => {
-        // Quando o RM/consultaSQLServer falha, ele NÃO devolve array; devolve objeto {result, method, parameters}
         if (isFrameworkError(resp) && resp.result! < 0) {
           console.warn('[ETH.REEM.003][IDPRJ=%s] framework error:', projectId, resp);
           return [] as AnyRow[];
@@ -225,8 +224,7 @@ export class ApiClient {
       map((rows) =>
         (rows ?? [])
           .map((r, idx) => {
-            // Exemplo OK:
-            // DESCRICAO: "Deslocamento", CODTRF:"001.99.01", IDTRF:201
+
             const descricao = toStringSafe(
               pick(r, ['DESCRICAO', 'Descricao', 'descricao', 'NOME', 'NOMEDESPESA', 'DESPESA', 'NAME']),
               ''
@@ -236,8 +234,6 @@ export class ApiClient {
 
             const idTrf = toNumber(pick(r, ['IDTRF', 'IdTrf', 'idtrf', 'TASKID', 'IDTAREFA', 'TASK_ID']), 0);
 
-            // Para sua tela, o que define a tarefa automaticamente é o IDTRF.
-            // Usamos IDTRF como "id" da opção (seleção) e como taskId (rateio).
             const id = idTrf > 0 ? idTrf : idx + 1;
             const name = codTrf ? `${descricao} — ${codTrf}` : descricao;
             const taskId = idTrf > 0 ? idTrf : undefined;
@@ -254,7 +250,6 @@ export class ApiClient {
     );
   }
 
-  // Mantém por compatibilidade, mas não deve ser usado
   getExpenses(): Observable<ExpenseType[]> {
     console.warn('[ETH.REEM.003] getExpenses() deprecated: use getExpensesByProject(IDPRJ).');
     return of([] as ExpenseType[]);

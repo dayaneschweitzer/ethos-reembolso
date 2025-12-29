@@ -350,7 +350,6 @@ export class ReembolsoNovoPage implements OnInit {
   }
 
   private ensureExpensesLoaded(projectId: number, group: any): void {
-    // Se já carregou antes, só aplica default/auto-task se necessário
     if (this.expensesLoaded[projectId] && (this.expensesByProject[projectId]?.length ?? 0) >= 0) {
       this.applyDefaultExpenseAndTask(projectId, group);
       return;
@@ -372,9 +371,8 @@ export class ReembolsoNovoPage implements OnInit {
       error: () => {
         this.expensesByProject[projectId] = [];
         this.expensesLoading[projectId] = false;
-        this.expensesLoaded[projectId] = true; // carregou, porém vazio por falha
+        this.expensesLoaded[projectId] = true; 
 
-        // mantém os campos como estão para não quebrar a edição
       },
     });
   }
@@ -388,7 +386,6 @@ export class ReembolsoNovoPage implements OnInit {
       group.get('expenseTypeId')?.setValue(String(list[0].id));
     }
 
-    // depois de garantir despesa válida, tenta preencher task automaticamente
     const eid = Number(group.get('expenseTypeId')?.value || 0);
     const exp = list.find((e) => Number(e.id) === eid);
     const taskId = exp?.taskId ? Number(exp.taskId) : 0;
@@ -422,7 +419,6 @@ export class ReembolsoNovoPage implements OnInit {
     return formatBRL(v);
   }
 
-  // ===== Comprovantes (drag & drop + selecionar) =====
   onDragOver(ev: DragEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
@@ -465,7 +461,6 @@ export class ReembolsoNovoPage implements OnInit {
   removeFile(idx: number): void {
     this.files = this.files.filter((_, i) => i !== idx);
   }
-  // ================================================
 
   cancel(): void {
     this.router.navigateByUrl('/solicitacoes');
@@ -474,13 +469,11 @@ export class ReembolsoNovoPage implements OnInit {
   noop(): void {}
 
   canSave(): boolean {
-    // Se o projeto não tem despesas (ETH.REEM.003 vazio), a tela não consegue seguir com seleção segura.
-    // Mantém o bloqueio para evitar salvar movimento sem classificação.
     const hasProjectWithoutExpenses = this.items.controls.some((g) => {
       const pid = Number(g.get('projectId')?.value || 0);
       if (!pid) return false;
-      if (this.expensesLoading[pid]) return true; // ainda carregando, bloqueia salvar
-      if (!this.expensesLoaded[pid]) return true; // ainda não carregou, bloqueia salvar
+      if (this.expensesLoading[pid]) return true; 
+      if (!this.expensesLoaded[pid]) return true; 
       return (this.expensesByProject[pid] ?? []).length === 0;
     });
 
