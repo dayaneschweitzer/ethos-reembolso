@@ -29,7 +29,6 @@ function saveToStorage(data: RequestListItem[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // se storage estiver indisponível, só ignora
   }
 }
 
@@ -37,7 +36,6 @@ export const REQUESTS_DB = (() => {
   const stored = loadFromStorage();
   const data: RequestListItem[] = stored ?? [...REQUESTS_SEED];
 
-  // se não tinha nada salvo ainda, grava o seed
   if (!stored) saveToStorage(data);
 
   return {
@@ -55,7 +53,7 @@ export const REQUESTS_DB = (() => {
       const item: RequestListItem = {
         id: nextId(),
         type: 'Reembolso',
-        costCenter: cc ? cc.name : ccCode, // usa nome quando possível
+        costCenter: cc ? cc.name : ccCode, 
         date: ddmmyyyy,
         total,
         status: 'Em Aprovação',

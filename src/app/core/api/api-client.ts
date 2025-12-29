@@ -13,10 +13,16 @@ import { RequestListItem } from '../models/request.model';
 type AnyRow = Record<string, any>;
 type CostCenterRow = { CODCCUSTO: string; NOME: string };
 
+type FrameworkError = { result?: number; method?: string; parameters?: string };
+
 function normalizeKey(s: string): string {
   return String(s ?? '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+}
+
+function isFrameworkError(resp: any): resp is FrameworkError {
+  return !!resp && typeof resp === 'object' && !Array.isArray(resp) && typeof resp.result === 'number';
 }
 
 function normalizeRows<T = AnyRow>(resp: any): T[] {
@@ -178,7 +184,7 @@ export class ApiClient {
     const params = new HttpParams().set('parameters', `IDPRJ=${projectId}`);
 
     return this.http.get<any>(API.tasksByProject(), { params }).pipe(
-      tap((resp) => console.debug('[ETH.REEM.005] raw:', resp)),
+      tap((resp) => console.debug('[ETH.REEM.005][IDPRJ=%s] raw:', projectId, resp)),
       map((resp) => normalizeRows<AnyRow>(resp)),
       map((rows) =>
         (rows ?? [])
@@ -203,54 +209,55 @@ export class ApiClient {
     );
   }
 
-  getExpenses(): Observable<ExpenseType[]> {
-    return this.http.get<any>(API.expenses()).pipe(
-      tap((resp) => console.debug('[ETH.REEM.003] raw:', resp)),
-      map((resp) => normalizeRows<AnyRow>(resp)),
+  getExpensesByProject(projectId: number): Observable<ExpenseType[]> {
+    const params = new HttpParams().set('parameters', `IDPRJ=${projectId}`);
+
+    return this.http.get<any>(API.expenses(), { params }).pipe(
+      tap((resp) => console.debug('[ETH.REEM.003][IDPRJ=%s] raw:', projectId, resp)),
+      map((resp) => {
+        // Quando o RM/consultaSQLServer falha, ele NÃO devolve array; devolve objeto {result, method, parameters}
+        if (isFrameworkError(resp) && resp.result! < 0) {
+          console.warn('[ETH.REEM.003][IDPRJ=%s] framework error:', projectId, resp);
+          return [] as AnyRow[];
+        }
+        return normalizeRows<AnyRow>(resp);
+      }),
       map((rows) =>
         (rows ?? [])
           .map((r, idx) => {
-            const idRaw = pick(r, [
-              'ID',
-              'IDDESPESA',
-              'ID_DESPESA',
-              'CODDESPESA',
-              'COD_DESPESA',
-              'CODIGO',
-              'COD',
-              'CODTB2',
-              'CODTBDESP',
-              'EXPENSEID',
-            ]);
-
-            const id = toNumber(idRaw, idx + 1);
-
-            const name = toStringSafe(
-              pick(r, [
-                'NOME',
-                'NOMEDESPESA',
-                'NOME_DESPESA',
-                'DESPESA',
-                'DESCRICAO',
-                'DESCR',
-                'DESCRICAODESPESA',
-                'DESCRICAO_DESPESA',
-                'NAME',
-              ]),
+            // Exemplo OK:
+            // DESCRICAO: "Deslocamento", CODTRF:"001.99.01", IDTRF:201
+            const descricao = toStringSafe(
+              pick(r, ['DESCRICAO', 'Descricao', 'descricao', 'NOME', 'NOMEDESPESA', 'DESPESA', 'NAME']),
               ''
             );
 
-            const taskIdMaybe = toNumber(
-              pick(r, ['TASKID', 'IDTAREFA', 'ID_TAREFA', 'TAREFAID', 'TASK_ID', 'CODTAREFA', 'IDTRF']),
-              0
-            );
-            const taskId = taskIdMaybe > 0 ? taskIdMaybe : undefined;
+            const codTrf = toStringSafe(pick(r, ['CODTRF', 'CodTrf', 'codtrf', 'COD_TAREFA', 'CODTAREFA']), '');
+
+            const idTrf = toNumber(pick(r, ['IDTRF', 'IdTrf', 'idtrf', 'TASKID', 'IDTAREFA', 'TASK_ID']), 0);
+
+            // Para sua tela, o que define a tarefa automaticamente é o IDTRF.
+            // Usamos IDTRF como "id" da opção (seleção) e como taskId (rateio).
+            const id = idTrf > 0 ? idTrf : idx + 1;
+            const name = codTrf ? `${descricao} — ${codTrf}` : descricao;
+            const taskId = idTrf > 0 ? idTrf : undefined;
 
             return { id, name, taskId } as ExpenseType;
           })
           .filter((e) => !!e.name)
-      )
+      ),
+      tap((mapped) => console.debug('[ETH.REEM.003][IDPRJ=%s] mapped:', projectId, mapped)),
+      catchError((err) => {
+        console.warn('[ETH.REEM.003] falha ao carregar despesas por projeto:', projectId, err);
+        return of([] as ExpenseType[]);
+      })
     );
+  }
+
+  // Mantém por compatibilidade, mas não deve ser usado
+  getExpenses(): Observable<ExpenseType[]> {
+    console.warn('[ETH.REEM.003] getExpenses() deprecated: use getExpensesByProject(IDPRJ).');
+    return of([] as ExpenseType[]);
   }
 
   getUserRequests(userCode: string): Observable<RequestListItem[]> {
@@ -301,7 +308,7 @@ export class ApiClient {
           ])
         );
 
-        let total = toNumber(
+        const total = toNumber(
           pick(r, [
             'TOTAL',
             'VALOR',
@@ -370,13 +377,7 @@ export class ApiClient {
 
     if (Array.isArray(resp)) return resp[0] ?? null;
 
-    const arr =
-      resp.value ??
-      resp.items ??
-      resp.data ??
-      resp.result ??
-      resp.results ??
-      resp.rows;
+    const arr = resp.value ?? resp.items ?? resp.data ?? resp.result ?? resp.results ?? resp.rows;
 
     if (Array.isArray(arr)) return arr[0] ?? null;
 
@@ -405,9 +406,7 @@ export class ApiClient {
       .set('$filter', `companyId eq ${companyId} and movementId eq ${movId}`)
       .set('$top', '1');
 
-    const p4 = new HttpParams()
-      .set('$filter', `movementId eq ${movId}`)
-      .set('$top', '1');
+    const p4 = new HttpParams().set('$filter', `movementId eq ${movId}`).set('$top', '1');
 
     return concat(
       this.http.get<any>(try1).pipe(catchError(() => of(null))),
